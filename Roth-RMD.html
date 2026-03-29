@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>RMD / Roth Conversion Optimizer</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    fieldset { margin-bottom: 20px; padding: 12px; }
+    legend { font-weight: bold; }
+    .row {
+      display: flex;
+      align-items: center;
+      margin: 6px 0;
+    }
+    .row label {
+      width: 260px;
+    }
+    .row input {
+      width: 160px;
+      margin-right: 12px;
+    }
+    .hint {
+      color: #666;
+      font-size: 12px;
+      max-width: 400px;
+    }
+    button { padding: 8px 16px; margin-top: 10px; }
+    #bottomLine {
+      display: inline-block;
+      margin-left: 20px;
+      font-size: 18px;
+      font-weight: bold;
+      vertical-align: middle;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-top: 20px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px 6px;
+      text-align: right;
+    }
+    th:nth-child(1), td:nth-child(1),
+    th:nth-child(11), td:nth-child(11) {
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<h1>RMD / Roth Conversion Optimizer</h1>
+
+<form id="paramsForm">
+
+  <fieldset>
+    <legend>Core Parameters</legend>
+
+    <div class="row">
+      <label for="current_age">Current age:</label>
+      <input id="current_age" type="number">
+      <span class="hint">Your age today. Determines RMD factor.</span>
+    </div>
+
+    <div class="row">
+      <label for="years">Years to project:</label>
+      <input id="years" type="number">
+      <span class="hint">Number of future years to simulate.</span>
+    </div>
+
+    <div class="row">
+      <label for="initial_ira_balance">Initial IRA balance:</label>
+      <input id="initial_ira_balance" type="number">
+      <span class="hint">Current traditional IRA balance (pre‑tax).</span>
+    </div>
+
+    <div class="row">
+      <label for="initial_roth_balance">Initial Roth balance:</label>
+      <input id="initial_roth_balance" type="number">
+      <span class="hint">Current Roth IRA balance (tax‑free).</span>
+    </div>
+
+    <div class="row">
+      <label for="initial_outside_balance">Initial outside funds:</label>
+      <input id="initial_outside_balance" type="number">
+      <span class="hint">Taxable funds available to pay taxes.</span>
+    </div>
+
+    <div class="row">
+      <label for="yearly_conversion_amount">Yearly Roth conversion amount:</label>
+      <input id="yearly_conversion_amount" type="number">
+      <span class="hint">Dollar amount converted every year. Leave blank to use optimizer.</span>
+    </div>
+
+    <div class="row">
+      <label for="growth_rate">Growth rate projection:</label>
+      <input id="growth_rate" type="number" step="0.0001" value="0.05">
+      <span class="hint">Annual growth for IRA, Roth, and outside funds (e.g., 0.05 = 5%).</span>
+    </div>
+
+    <div class="row">
+      <label for="cap_gains_rate">Capital gains rate:</label>
+      <input id="cap_gains_rate" type="number" step="0.0001" value="0.15">
+      <span class="hint">As decimal (e.g., 0.15 = 15%) when selling taxable assets to pay taxes.</span>
+    </div>
+
+    <div class="row">
+      <label for="ira_reduction_factor">IRA reduction factor:</label>
+      <input id="ira_reduction_factor" type="number" step="0.0001" value="0.75">
+      <span class="hint">After‑tax value of IRA (e.g., 0.75 → you “see” ~75% of IRA).</span>
+    </div>
+
+    <div class="row">
+      <label for="target_conversion_cap_pct_of_ira">Conversion cap:</label>
+      <input id="target_conversion_cap_pct_of_ira" type="number" step="0.0001" value="0.10">
+      <span class="hint">Max % of IRA (after RMD) to convert yearly when optimizer is used.</span>
+    </div>
+
+    <div class="row">
+      <label for="allow_crossing_irmaa">Allow crossing IRMAA tiers:</label>
+      <input id="allow_crossing_irmaa" type="checkbox">
+      <span class="hint">If checked, conversions may push MAGI into higher Medicare premium tiers.</span>
+    </div>
+
+  </fieldset>
+
+  <fieldset>
+    <legend>Income & Tax Parameters</legend>
+
+    <div class="row">
+      <label for="social_security">Social Security:</label>
+      <input id="social_security" type="number">
+      <span class="hint">Annual Social Security benefits.</span>
+    </div>
+
+    <div class="row">
+      <label for="dividends_interest">Dividends & interest:</label>
+      <input id="dividends_interest" type="number">
+      <span class="hint">Taxable dividends and interest.</span>
+    </div>
+
+    <div class="row">
+      <label for="ss_taxable_fraction">SS taxable fraction:</label>
+      <input id="ss_taxable_fraction" type="number" step="0.0001" value="0.85">
+      <span class="hint">Portion of Social Security that is taxable. Usually 0.85.</span>
+    </div>
+
+    <div class="row">
+      <label for="standard_deduction_mfj">Standard deduction (MFJ):</label>
+      <input id="standard_deduction_mfj" type="number" value="34000">
+      <span class="hint">Current MFJ standard deduction (~34,000). Editable.</span>
+    </div>
+
+    <div class="row">
+      <label for="people">People:</label>
+      <input id="people" type="number" value="2">
+      <span class="hint">Number of people for IRMAA surcharge (usually 2).</span>
+    </div>
+
+  </fieldset>
+
+  <button type="button" id="runBtn">Run projection</button>
+  <button type="button" id="exportBtn">Export CSV</button>
+  <div id="bottomLine"></div>
+
+</form>
+
+<table id="resultsTable">
+  <thead>
+    <tr>
+      <th>Age</th>
+      <th>IRA</th>
+      <th>Roth</th>
+      <th>Outside funds</th>
+      <th>Total after tax</th>
+      <th>RMD</th>
+      <th>MAGI</th>
+      <th>Taxable</th>
+      <th>Federal tax</th>
+      <th>Conversion tax</th>
+      <th>Tier</th>
+      <th>IRMAA</th>
+      <th>Outside cash needed</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script>
+function fmt(x) {
+  return isFinite(x) ? x.toLocaleString("en-US", { maximumFractionDigits: 0 }) : "";
+}
+
+function defaultUniformLifetimeFactors() {
+  return {
+    72: 27.4, 73: 26.5, 74: 25.5, 75: 24.6,
+    76: 23.7, 77: 22.9, 78: 22.0, 79: 21.1,
+    80: 20.2, 81: 19.4, 82: 18.5, 83: 17.7,
+    84: 16.8, 85: 16.0
+  };
+}
+
+function defaultIrmaaThresholdsJoint2025() {
+  return [
+    [218000, "Tier 0"],
+    [274000, "Tier 1"],
+    [342000, "Tier 2"],
+    [410000, "Tier 3"],
+    [750000, "Tier 4"],
+    [Infinity, "Tier 5"]
+  ];
+}
+
+function irmaaTierFromMagi(magi, thresholds) {
+  for (const [upper, label] of thresholds) {
+    if (magi <= upper) return label;
+  }
+  return thresholds[thresholds.length - 1][1];
+}
+
+function irmaaSurcharge(tier, people) {
+  const surcharges = {
+    "Tier 0": 0,
+    "Tier 1": 65 * 12,
+    "Tier 2": 163 * 12,
+    "Tier 3": 260 * 12,
+    "Tier 4": 358 * 12,
+    "Tier 5": 395 * 12
+  };
+  return (surcharges[tier] || 0) * people;
+}
+
+function defaultFederalBracketsMfj2025() {
+  return [
+    [22000, 0.10],
+    [94300, 0.12],
+    [201050, 0.22],
+    [383900, 0.24],
+    [462500, 0.32],
+    [693750, 0.35],
+    [Infinity, 0.37]
+  ];
+}
+
+function computeTotalTax(taxable, brackets) {
+  if (taxable <= 0) return 0;
+  let tax = 0;
+  let prevUpper = 0;
+  for (const [upper, rate] of brackets) {
+    const amountInBracket = Math.min(taxable, upper) - prevUpper;
+    if (amountInBracket > 0) {
+      tax += amountInBracket * rate;
+      prevUpper = upper;
+    }
+    if (taxable <= upper) break;
+  }
+  return tax;
+}
+
+function computeIncrementalTax(taxableBefore, conv, brackets) {
+  const totalWithConv = computeTotalTax(taxableBefore + conv, brackets);
+  const totalBefore = computeTotalTax(taxableBefore, brackets);
+  return totalWithConv - totalBefore;
+}
+
+function capMagiByIrmaa(baseMagi, desiredConv, thresholds, allowCrossing) {
+  if (allowCrossing) return desiredConv;
+  let currentUpper = null;
+  for (const [upper] of thresholds) {
+    if (baseMagi <= upper) { currentUpper = upper; break; }
+  }
+  if (currentUpper === null) return desiredConv;
+  return Math.min(desiredConv, Math.max(0, currentUpper - baseMagi));
+}
+
+function projectRmdAndDynamicConversion(p) {
+  const uniform = defaultUniformLifetimeFactors();
+  const thresholds = defaultIrmaaThresholdsJoint2025();
+  const brackets = defaultFederalBracketsMfj2025();
+
+  let priorIra = p.initial_ira_balance;
+  let roth = p.initial_roth_balance;
+  let priorOutside = p.initial_outside_balance;
+
+  const results = [];
+
+  for (let i = 0; i < p.years; i++) {
+    const age = p.current_age + i;
+
+    const factor = uniform[age] ?? 20.0;
+    const rmd = priorIra / factor;
+
+    const ssTaxable = p.social_security * p.ss_taxable_fraction;
+    const baseMagi = rmd + p.social_security + p.dividends_interest;
+    const taxableBefore = Math.max(0, rmd + ssTaxable + p.dividends_interest - p.standard_deduction_mfj);
+
+    const iraAvailable = Math.max(0, priorIra - rmd);
+    const softCap = iraAvailable * p.target_conversion_cap_pct_of_ira;
+
+    let conversion;
+
+    if (p.yearly_conversion_amount !== null && isFinite(p.yearly_conversion_amount)) {
+      conversion = Math.min(iraAvailable, p.yearly_conversion_amount);
+    } else {
+      conversion = capMagiByIrmaa(baseMagi, softCap, thresholds, p.allow_crossing_irmaa);
+
+      function canAfford(convAmt) {
+        const taxableWithConv = taxableBefore + convAmt;
+        const totalTax = computeTotalTax(taxableWithConv, brackets);
+        const magi = baseMagi + convAmt;
+        const tier = irmaaTierFromMagi(magi, thresholds);
+        const surcharge = irmaaSurcharge(tier, p.people);
+        const netCost = totalTax + surcharge;
+        const gross = netCost / (1 - p.cap_gains_rate);
+        return { affordable: priorOutside >= gross };
+      }
+
+      if (!canAfford(conversion).affordable && conversion > 0) {
+        let low = 0, high = conversion;
+        while (high - low > 1000) {
+          const mid = (low + high) / 2;
+          const res = canAfford(mid);
+          if (res.affordable) {
+            low = mid;
+          } else {
+            high = mid;
+          }
+        }
+        conversion = low;
+      }
+    }
+
+    const taxableWithConv = taxableBefore + conversion;
+    const totalTax = computeTotalTax(taxableWithConv, brackets);
+    const convTax = computeIncrementalTax(taxableBefore, conversion, brackets);
+    const magiEst = baseMagi + conversion;
+    const tier = irmaaTierFromMagi(magiEst, thresholds);
+    const irmaa = irmaaSurcharge(tier, p.people);
+    const outsideCashUsed = (totalTax + irmaa) / (1 - p.cap_gains_rate);
+
+    const iraEndPreTax = (priorIra - rmd - conversion) * (1 + p.growth_rate);
+    const iraEndAfterTax = iraEndPreTax * p.ira_reduction_factor;
+    const rothEnd = (roth + conversion) * (1 + p.growth_rate);
+    const outsideEnd = Math.max(0, priorOutside - outsideCashUsed) * (1 + p.growth_rate);
+
+    const totalEnd = iraEndAfterTax + rothEnd + outsideEnd;
+
+    results.push({
+      age,
+      ira_balance_end: iraEndPreTax,
+      ira_after_tax: iraEndAfterTax,
+      roth_balance_end: rothEnd,
+      outside_balance_end: outsideEnd,
+      total_balance_end: totalEnd,
+      rmd_amount: rmd,
+      magi_estimate: magiEst,
+      taxable_income: taxableWithConv,
+      federal_tax_total: totalTax,
+      federal_tax_on_conversion: convTax,
+      irmaa_tier: tier,
+      irmaa_surcharge: irmaa,
+      outside_cash_used: outsideCashUsed
+    });
+
+    priorIra = iraEndPreTax;
+    priorOutside = outsideEnd;
+    roth = rothEnd;
+  }
+
+  return results;
+}
+
+const fieldIds = [
+  "current_age","years","initial_ira_balance","initial_roth_balance",
+  "initial_outside_balance","yearly_conversion_amount","growth_rate",
+  "cap_gains_rate","ira_reduction_factor",
+  "target_conversion_cap_pct_of_ira","social_security","dividends_interest",
+  "ss_taxable_fraction","standard_deduction_mfj","people"
+];
+
+function loadFields() {
+  fieldIds.forEach(id => {
+    const el = document.getElementById(id);
+    const v = localStorage.getItem("rmd_" + id);
+    if (v !== null) el.value = v;
+  });
+  document.getElementById("allow_crossing_irmaa").checked =
+    localStorage.getItem("rmd_allow_crossing_irmaa") === "true";
+}
+
+function wireSave() {
+  fieldIds.forEach(id => {
+    document.getElementById(id).addEventListener("input", e => {
+      localStorage.setItem("rmd_" + id, e.target.value);
+    });
+  });
+  document.getElementById("allow_crossing_irmaa").addEventListener("change", e => {
+    localStorage.setItem("rmd_allow_crossing_irmaa", e.target.checked);
+  });
+}
+
+function runProjection() {
+  const getNum = id => {
+    const v = document.getElementById(id).value.trim();
+    return v === "" ? NaN : Number(v);
+  };
+
+  const yearlyConvRaw = document.getElementById("yearly_conversion_amount").value.trim();
+  const yearlyConv = yearlyConvRaw === "" ? null : Number(yearlyConvRaw);
+
+  const params = {
+    current_age: getNum("current_age"),
+    years: getNum("years"),
+    initial_ira_balance: getNum("initial_ira_balance"),
+    initial_roth_balance: getNum("initial_roth_balance"),
+    initial_outside_balance: getNum("initial_outside_balance"),
+    yearly_conversion_amount: yearlyConv,
+    growth_rate: getNum("growth_rate"),
+    cap_gains_rate: getNum("cap_gains_rate"),
+    ira_reduction_factor: getNum("ira_reduction_factor"),
+    target_conversion_cap_pct_of_ira: getNum("target_conversion_cap_pct_of_ira"),
+    social_security: getNum("social_security"),
+    dividends_interest: getNum("dividends_interest"),
+    ss_taxable_fraction: getNum("ss_taxable_fraction"),
+    standard_deduction_mfj: getNum("standard_deduction_mfj"),
+    people: getNum("people"),
+    allow_crossing_irmaa: document.getElementById("allow_crossing_irmaa").checked
+  };
+
+  for (const [k, v] of Object.entries(params)) {
+    if (k === "yearly_conversion_amount" || k === "allow_crossing_irmaa") continue;
+    if (!isFinite(v)) {
+      alert("Please enter a value for: " + k);
+      return;
+    }
+  }
+
+  const results = projectRmdAndDynamicConversion(params);
+  const tbody = document.querySelector("#resultsTable tbody");
+  tbody.innerHTML = "";
+
+  results.forEach(r => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${r.age}</td>
+      <td>${fmt(r.ira_balance_end)}</td>
+      <td>${fmt(r.roth_balance_end)}</td>
+      <td>${fmt(r.outside_balance_end)}</td>
+      <td>${fmt(r.total_balance_end)}</td>
+      <td>${fmt(r.rmd_amount)}</td>
+      <td>${fmt(r.magi_estimate)}</td>
+      <td>${fmt(r.taxable_income)}</td>
+      <td>${fmt(r.federal_tax_total)}</td>
+      <td>${fmt(r.federal_tax_on_conversion)}</td>
+      <td>${r.irmaa_tier}</td>
+      <td>${fmt(r.irmaa_surcharge)}</td>
+      <td>${fmt(r.outside_cash_used)}</td>
+    `;
+    tbody.appendChild(tr);
+  });
+
+  const bottom = document.getElementById("bottomLine");
+  if (results.length > 0) {
+    const last = results[results.length - 1];
+    bottom.textContent = "Final total wealth after tax: $" + fmt(last.total_balance_end);
+  } else {
+    bottom.textContent = "";
+  }
+}
+
+function exportTableToCSV() {
+  const table = document.getElementById("resultsTable");
+  let csv = [];
+
+  for (let row of table.querySelectorAll("tr")) {
+    let cols = [...row.querySelectorAll("th, td")].map(td =>
+      td.innerText.replace(/,/g, "")
+    );
+    csv.push(cols.join(","));
+  }
+
+  const blob = new Blob([csv.join("\n")], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rmd_roth_report.csv";
+  a.click();
+
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById("runBtn").addEventListener("click", runProjection);
+document.getElementById("exportBtn").addEventListener("click", exportTableToCSV);
+loadFields();
+wireSave();
+</script>
+
+</body>
+</html>
