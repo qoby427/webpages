@@ -15,14 +15,17 @@
     .row label {
       width: 260px;
     }
-    .row input {
+    .row input[type="number"] {
       width: 160px;
       margin-right: 12px;
+    }
+    .row input[type="checkbox"] {
+      margin-right: 8px;
     }
     .hint {
       color: #666;
       font-size: 12px;
-      max-width: 400px;
+      max-width: 420px;
     }
     button { padding: 8px 16px; margin-top: 10px; }
     #bottomLine {
@@ -56,7 +59,7 @@
 <form id="paramsForm">
 
   <fieldset>
-    <legend>Core Parameters</legend>
+    <legend>Core parameters</legend>
 
     <div class="row">
       <label for="current_age">Current age:</label>
@@ -85,17 +88,17 @@
     <div class="row">
       <label for="initial_outside_balance">Initial outside funds:</label>
       <input id="initial_outside_balance" type="number">
-      <span class="hint">Taxable funds available to pay taxes.</span>
+      <span class="hint">Taxable funds (cash + investments) available to pay taxes and spending.</span>
     </div>
 
     <div class="row">
       <label for="yearly_conversion_amount">Yearly Roth conversion amount:</label>
       <input id="yearly_conversion_amount" type="number">
-      <span class="hint">Dollar amount converted every year. Leave blank to use optimizer.</span>
+      <span class="hint">Dollar amount converted every year. Leave blank to let the optimizer choose.</span>
     </div>
 
     <div class="row">
-      <label for="growth_rate">Growth rate projection:</label>
+      <label for="growth_rate">Growth rate (all assets):</label>
       <input id="growth_rate" type="number" step="0.0001" value="0.05">
       <span class="hint">Annual growth for IRA, Roth, and outside funds (e.g., 0.05 = 5%).</span>
     </div>
@@ -103,7 +106,7 @@
     <div class="row">
       <label for="cap_gains_rate">Capital gains rate:</label>
       <input id="cap_gains_rate" type="number" step="0.0001" value="0.15">
-      <span class="hint">As decimal (e.g., 0.15 = 15%) when selling taxable assets to pay taxes.</span>
+      <span class="hint">Use decimal (0.15 = 15%). If you enter 15, it will be treated as 15%.</span>
     </div>
 
     <div class="row">
@@ -119,7 +122,13 @@
     </div>
 
     <div class="row">
-      <label for="allow_crossing_irmaa">Allow crossing IRMAA tiers:</label>
+      <label for="roth_contribution_amount">Roth contribution amount:</label>
+      <input id="roth_contribution_amount" type="number" value="0">
+      <span class="hint">Amount contributed to Roth each year. 0 means no contribution.</span>
+    </div>
+
+    <div class="row">
+      <label for="allow_crossing_irmaa">Allow crossing IRMAA tiers?</label>
       <input id="allow_crossing_irmaa" type="checkbox">
       <span class="hint">If checked, conversions may push MAGI into higher Medicare premium tiers.</span>
     </div>
@@ -127,12 +136,12 @@
   </fieldset>
 
   <fieldset>
-    <legend>Income & Tax Parameters</legend>
+    <legend>Income & tax parameters</legend>
 
     <div class="row">
-      <label for="social_security">Social Security:</label>
+      <label for="social_security">Social Security (annual):</label>
       <input id="social_security" type="number">
-      <span class="hint">Annual Social Security benefits.</span>
+      <span class="hint">Annual Social Security benefits. Treated as cash added to outside funds.</span>
     </div>
 
     <div class="row">
@@ -161,6 +170,20 @@
 
   </fieldset>
 
+  <fieldset>
+    <legend>Spending</legend>
+
+    <div class="row">
+      <label for="annual_spending">Annual spending (after tax):</label>
+      <input id="annual_spending" type="number">
+      <span class="hint">
+        Total yearly spending funded from RMD + Social Security + outside funds.
+        Treated as a cash outflow from outside funds each year.
+      </span>
+    </div>
+
+  </fieldset>
+
   <button type="button" id="runBtn">Run projection</button>
   <button type="button" id="exportBtn">Export CSV</button>
   <div id="bottomLine"></div>
@@ -173,16 +196,16 @@
       <th>Age</th>
       <th>IRA</th>
       <th>Roth</th>
-      <th>Outside funds</th>
-      <th>Total after tax</th>
+      <th>Outside</th>
+      <th>Total (after tax)</th>
       <th>RMD</th>
       <th>MAGI</th>
       <th>Taxable</th>
-      <th>Federal tax</th>
-      <th>Conversion tax</th>
+      <th>FedTax (total)</th>
+      <th>ConvTax</th>
       <th>Tier</th>
-      <th>IRMAA</th>
-      <th>Outside cash needed</th>
+      <th>IRMAA$</th>
+      <th>Outside cash used</th>
     </tr>
   </thead>
   <tbody></tbody>
@@ -286,7 +309,7 @@ function projectRmdAndDynamicConversion(p) {
 
   const results = [];
 
-  for (let i = 0; i < p.years; i++) {
+  for (let i = 0; i < p.years && priorIra > 0; i++) {
     const age = p.current_age + i;
 
     const factor = uniform[age] ?? 20.0;
@@ -294,7 +317,10 @@ function projectRmdAndDynamicConversion(p) {
 
     const ssTaxable = p.social_security * p.ss_taxable_fraction;
     const baseMagi = rmd + p.social_security + p.dividends_interest;
-    const taxableBefore = Math.max(0, rmd + ssTaxable + p.dividends_interest - p.standard_deduction_mfj);
+    const taxableBefore = Math.max(
+      0,
+      rmd + ssTaxable + p.dividends_interest - p.standard_deduction_mfj
+    );
 
     const iraAvailable = Math.max(0, priorIra - rmd);
     const softCap = iraAvailable * p.target_conversion_cap_pct_of_ira;
@@ -304,7 +330,12 @@ function projectRmdAndDynamicConversion(p) {
     if (p.yearly_conversion_amount !== null && isFinite(p.yearly_conversion_amount)) {
       conversion = Math.min(iraAvailable, p.yearly_conversion_amount);
     } else {
-      conversion = capMagiByIrmaa(baseMagi, softCap, thresholds, p.allow_crossing_irmaa);
+      conversion = capMagiByIrmaa(
+        baseMagi,
+        softCap,
+        thresholds,
+        p.allow_crossing_irmaa
+      );
 
       function canAfford(convAmt) {
         const taxableWithConv = taxableBefore + convAmt;
@@ -338,14 +369,30 @@ function projectRmdAndDynamicConversion(p) {
     const magiEst = baseMagi + conversion;
     const tier = irmaaTierFromMagi(magiEst, thresholds);
     const irmaa = irmaaSurcharge(tier, p.people);
+
     const outsideCashUsed = (totalTax + irmaa) / (1 - p.cap_gains_rate);
 
-    const iraEndPreTax = (priorIra - rmd - conversion) * (1 + p.growth_rate);
-    const iraEndAfterTax = iraEndPreTax * p.ira_reduction_factor;
-    const rothEnd = (roth + conversion) * (1 + p.growth_rate);
-    const outsideEnd = Math.max(0, priorOutside - outsideCashUsed) * (1 + p.growth_rate);
+    const rothContribution = p.roth_contribution_amount;
 
-    const totalEnd = iraEndAfterTax + rothEnd + outsideEnd;
+    const iraEndPreTax = (priorIra - rmd - conversion) * (1 + p.growth_rate);
+
+    const iraEndAfterTax = iraEndPreTax * p.ira_reduction_factor;
+    const rothEnd = (roth + conversion + rothContribution) * (1 + p.growth_rate);
+
+    let outsideBeforeGrowth =
+        priorOutside
+      + rmd
+      + p.social_security
+      - outsideCashUsed
+      - p.annual_spending
+      - rothContribution;
+
+    if (outsideBeforeGrowth < 0) outsideBeforeGrowth = 0;
+
+    const outsideEnd = outsideBeforeGrowth * (1 + p.growth_rate);
+    const outsideAfterTax = outsideEnd * (1 - p.cap_gains_rate);
+
+    const totalEnd = iraEndAfterTax + rothEnd + outsideAfterTax;
 
     results.push({
       age,
@@ -353,6 +400,7 @@ function projectRmdAndDynamicConversion(p) {
       ira_after_tax: iraEndAfterTax,
       roth_balance_end: rothEnd,
       outside_balance_end: outsideEnd,
+      outside_after_tax: outsideAfterTax,
       total_balance_end: totalEnd,
       rmd_amount: rmd,
       magi_estimate: magiEst,
@@ -377,12 +425,14 @@ const fieldIds = [
   "initial_outside_balance","yearly_conversion_amount","growth_rate",
   "cap_gains_rate","ira_reduction_factor",
   "target_conversion_cap_pct_of_ira","social_security","dividends_interest",
-  "ss_taxable_fraction","standard_deduction_mfj","people"
+  "ss_taxable_fraction","standard_deduction_mfj","people",
+  "annual_spending","roth_contribution_amount"
 ];
 
 function loadFields() {
   fieldIds.forEach(id => {
     const el = document.getElementById(id);
+    if (!el) return;
     const v = localStorage.getItem("rmd_" + id);
     if (v !== null) el.value = v;
   });
@@ -392,7 +442,9 @@ function loadFields() {
 
 function wireSave() {
   fieldIds.forEach(id => {
-    document.getElementById(id).addEventListener("input", e => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener("input", e => {
       localStorage.setItem("rmd_" + id, e.target.value);
     });
   });
@@ -410,6 +462,16 @@ function runProjection() {
   const yearlyConvRaw = document.getElementById("yearly_conversion_amount").value.trim();
   const yearlyConv = yearlyConvRaw === "" ? null : Number(yearlyConvRaw);
 
+  // Normalize cap gains: accept 0.15 or 15 as 15%
+  let capGainsRaw = getNum("cap_gains_rate");
+  if (!isFinite(capGainsRaw)) {
+    alert("Please enter a capital gains rate (e.g., 0.15 for 15%).");
+    return;
+  }
+  if (capGainsRaw >= 1) {
+    capGainsRaw = capGainsRaw / 100;
+  }
+
   const params = {
     current_age: getNum("current_age"),
     years: getNum("years"),
@@ -418,7 +480,7 @@ function runProjection() {
     initial_outside_balance: getNum("initial_outside_balance"),
     yearly_conversion_amount: yearlyConv,
     growth_rate: getNum("growth_rate"),
-    cap_gains_rate: getNum("cap_gains_rate"),
+    cap_gains_rate: capGainsRaw,
     ira_reduction_factor: getNum("ira_reduction_factor"),
     target_conversion_cap_pct_of_ira: getNum("target_conversion_cap_pct_of_ira"),
     social_security: getNum("social_security"),
@@ -426,6 +488,8 @@ function runProjection() {
     ss_taxable_fraction: getNum("ss_taxable_fraction"),
     standard_deduction_mfj: getNum("standard_deduction_mfj"),
     people: getNum("people"),
+    annual_spending: getNum("annual_spending"),
+    roth_contribution_amount: getNum("roth_contribution_amount") || 0,
     allow_crossing_irmaa: document.getElementById("allow_crossing_irmaa").checked
   };
 
@@ -464,7 +528,7 @@ function runProjection() {
   const bottom = document.getElementById("bottomLine");
   if (results.length > 0) {
     const last = results[results.length - 1];
-    bottom.textContent = "Final total wealth after tax: $" + fmt(last.total_balance_end);
+    bottom.textContent = "Final Total Wealth (after tax): $" + fmt(last.total_balance_end);
   } else {
     bottom.textContent = "";
   }
