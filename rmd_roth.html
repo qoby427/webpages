@@ -6,27 +6,34 @@
     body { font-family: system-ui, sans-serif; margin: 16px; }
     fieldset { margin-bottom: 20px; padding: 12px; }
     legend { font-weight: bold; }
+
     .row {
       display: flex;
       align-items: center;
       margin: 6px 0;
     }
+
     .row label {
       width: 260px;
     }
+
     .row input[type="number"] {
       width: 160px;
       margin-right: 12px;
     }
+
     .row input[type="checkbox"] {
       margin-right: 8px;
     }
+
     .hint {
       color: #666;
       font-size: 12px;
       max-width: 420px;
     }
+
     button { padding: 8px 16px; margin-top: 10px; }
+
     #bottomLine {
       display: inline-block;
       margin-left: 20px;
@@ -34,22 +41,46 @@
       font-weight: bold;
       vertical-align: middle;
     }
+
     table {
       border-collapse: collapse;
       width: 100%;
       margin-top: 20px;
       font-size: 13px;
     }
+
     th, td {
       border: 1px solid #ccc;
       padding: 4px 6px;
       text-align: right;
     }
+
     th:nth-child(1), td:nth-child(1),
     th:nth-child(11), td:nth-child(11) {
       text-align: center;
     }
-  </style>
+
+    /* ------------------------------ */
+    /* 📱 MOBILE: stack rows vertically */
+    /* ------------------------------ */
+    @media (max-width: 600px) {
+      .row {
+        flex-direction: column;      /* stack vertically */
+        align-items: flex-start;
+      }
+
+      .row .hint {
+        order: 3;                    /* force hint to bottom */
+        margin: 4px 0 0 0;           /* spacing above hint */
+      }
+
+      .row label,
+      .row input {
+        width: 100%;
+        margin: 2px 0;
+      }
+    }
+	</style>
 </head>
 <body>
 
